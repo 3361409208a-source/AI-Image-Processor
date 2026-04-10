@@ -1,0 +1,7 @@
+rembg[cpu]
+pillow
+watchdog
+filetype
+asyncer
+fastapi
+python-multipart
