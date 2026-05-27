@@ -20,6 +20,8 @@ def get_rembg_session(model_name):
 def remove_background(img, model_name):
     """核心抠图逻辑"""
     if img is None: return None, None
+    if isinstance(img, str):
+        img = Image.open(img)
     img = img.convert("RGBA")
     img_byte_arr = io.BytesIO()
     img.save(img_byte_arr, format='PNG')

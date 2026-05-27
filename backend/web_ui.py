@@ -36,10 +36,67 @@ custom_css = """
 """
 
 
+def select_local_file():
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    file_path = filedialog.askopenfilename(
+        filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.webp;*.bmp")]
+    )
+    root.destroy()
+    if file_path:
+        file_path = os.path.abspath(file_path)
+        try:
+            img = Image.open(file_path)
+            return file_path, img
+        except Exception as e:
+            return file_path, gr.update()
+    return gr.update(), gr.update()
+
+
+def save_and_replace_source(processed_img, source_path, upload_path):
+    if processed_img is None:
+        return "⚠️ 没有可保存的抠图结果，请先进行抠图处理。"
+    
+    # 1. 如果指定了源文件绝对路径（通过 选择本地文件 按钮获取）
+    if source_path:
+        source_path = source_path.strip('"\'')
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(source_path)), exist_ok=True)
+            processed_img.save(source_path, "PNG")
+            return f"✅ 已成功覆盖替换本地原文件：`{source_path}`"
+        except Exception as e:
+            return f"❌ 替换文件失败：{str(e)}"
+            
+    # 2. 如果没有指定源文件路径，但有上传时的临时文件路径，则保存到项目的 input 文件夹下，并替换同名文件
+    if upload_path:
+        try:
+            filename = os.path.basename(upload_path)
+            input_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "input"))
+            os.makedirs(input_dir, exist_ok=True)
+            target_path = os.path.join(input_dir, filename)
+            processed_img.save(target_path, "PNG")
+            return f"✅ 已保存并替换输入文件夹同名文件：`{target_path}`"
+        except Exception as e:
+            return f"❌ 保存到输入文件夹失败：{str(e)}"
+            
+    return "⚠️ 无法获取源文件路径，请先选择本地文件或上传图片。"
+
+
+def on_remove_background(img_path, model_name):
+    res_img, save_path = remove_background(img_path, model_name)
+    if res_img is not None:
+        return gr.update(value=res_img), gr.update(value=save_path, visible=True)
+    return None, gr.update(visible=False)
+
+
 def main():
     cfg = load_config()
 
     with gr.Blocks(title="AI 变异鱼工厂 V6.0 调试版", css=custom_css) as demo:
+        source_path_state = gr.State("")
         with gr.Tabs():
             with gr.Tab("✍️ 文生图"):
                 with gr.Row():
@@ -77,20 +134,36 @@ def main():
             with gr.Tab("✂️ 智能抠图"):
                 with gr.Row():
                     with gr.Column(scale=1):
-                        cut_in = gr.Image(label="待处理图", type="pil")
+                        cut_in = gr.Image(label="待处理图 (支持拖拽上传或本地选择)", type="filepath", height=320)
+                        select_local_btn = gr.Button("📂 选择本地文件 (直接支持替换)")
                         cut_engine = gr.Dropdown(
                             ["u2net", "isnet-general-use", "sam", "silueta"],
                             value="isnet-general-use",
-                            label="引擎",
+                            label="抠图引擎",
                         )
-                        cut_btn = gr.Button("✂️ 分离背景")
+                        cut_btn = gr.Button("✂️ 开始分离背景", variant="primary")
+                        
                     with gr.Column(scale=1):
-                        cut_out = gr.Image(label="预览", elem_classes="image-container")
-                        cut_file = gr.File(label="导出原档")
+                        cut_out = gr.Image(label="抠图预览 (透明背景)", elem_classes="image-container", type="pil", height=320, interactive=False)
+                        cut_file = gr.File(label="导出透明原档", visible=False)
+                        save_replace_btn = gr.Button("💾 保存并替换源文件", variant="secondary")
+                        save_status = gr.Markdown()
+                
+                select_local_btn.click(
+                    fn=select_local_file,
+                    outputs=[source_path_state, cut_in]
+                )
+                
                 cut_btn.click(
-                    fn=remove_background,
+                    fn=on_remove_background,
                     inputs=[cut_in, cut_engine],
                     outputs=[cut_out, cut_file],
+                )
+                
+                save_replace_btn.click(
+                    fn=save_and_replace_source,
+                    inputs=[cut_out, source_path_state, cut_in],
+                    outputs=[save_status],
                 )
 
             with gr.Tab("📦 资产管理"):
